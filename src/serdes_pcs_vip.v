@@ -1,9 +1,7 @@
 `default_nettype none
 module serdes_pcs_vip (
-  input wire clk, input wire rst_n, input wire mode_prbs31,
-  input wire send_comma, input wire err_inject,
-  output reg [9:0] tx_10b, output reg rx_locked,
-  output reg [31:0] rx_ok_cnt, output reg [31:0] rx_err_cnt
+  input wire clk, rst_n, mode_prbs31, send_comma, err_inject,
+  output reg [9:0] tx_10b, output reg rx_locked, output reg [31:0] rx_ok_cnt, rx_err_cnt
 );
   localparam [9:0] K28_5 = 10'b0011111010;
   function [14:0] step_p7(input [6:0] s);
@@ -15,23 +13,19 @@ module serdes_pcs_vip (
     begin t=s; for(i=0;i<8;i=i+1) begin b[i]=t[30]; t={t[29:0],t[30]^t[27]}; end step_p31={t,b}; end
   endfunction
   reg [6:0] tx_p7, rx_p7, tx_p7_n, rx_p7_n; reg [30:0] tx_p31, rx_p31, tx_p31_n, rx_p31_n;
-  reg [7:0] tx_b, exp_b;
+  reg [7:0] tx_b, exp_b, t_b7, t_b31, r_b7, r_b31;
   always @(*) begin
-    {tx_p7_n, tx_b} = mode_prbs31 ? {tx_p7, 8'd0} : step_p7(tx_p7);
-    {tx_p31_n, exp_b} = mode_prbs31 ? step_p31(tx_p31) : {tx_p31, 8'd0};
-    if (mode_prbs31) tx_b = exp_b;
-    {rx_p7_n, exp_b} = mode_prbs31 ? {rx_p7, step_p31(rx_p31)[7:0]} : step_p7(rx_p7);
-    rx_p31_n = mode_prbs31 ? step_p31(rx_p31)[38:8] : rx_p31;
+    {tx_p7_n, t_b7} = step_p7(tx_p7); {tx_p31_n, t_b31} = step_p31(tx_p31);
+    {rx_p7_n, r_b7} = step_p7(rx_p7); {rx_p31_n, r_b31} = step_p31(rx_p31);
+    tx_b = mode_prbs31 ? t_b31 : t_b7; exp_b = mode_prbs31 ? r_b31 : r_b7;
   end
   always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      tx_p7<=7'h7F; tx_p31<=31'h7FFFFFFF; tx_10b<=K28_5;
-      rx_p7<=7'h7F; rx_p31<=31'h7FFFFFFF; rx_locked<=0; rx_ok_cnt<=0; rx_err_cnt<=0;
-    end else begin
+    if (!rst_n) begin tx_p7<=7'h7F; tx_p31<=31'h7FFFFFFF; tx_10b<=K28_5; rx_p7<=7'h7F; rx_p31<=31'h7FFFFFFF; rx_locked<=0; rx_ok_cnt<=0; rx_err_cnt<=0; end
+    else begin
       if (send_comma) begin tx_p7<=7'h7F; tx_p31<=31'h7FFFFFFF; tx_10b<=K28_5; end
-      else begin tx_p7<=tx_p7_n; tx_p31<=tx_p31_n; tx_10b<={~tx_b[0],tx_b,tx_b[0]}^(err_inject?10'd2:10'd0); end
+      else begin tx_p7<=mode_prbs31?tx_p7:tx_p7_n; tx_p31<=mode_prbs31?tx_p31_n:tx_p31; tx_10b<={~tx_b[0],tx_b,tx_b[0]}^(err_inject?10'd2:10'd0); end
       if (tx_10b==K28_5) begin rx_locked<=1; rx_p7<=7'h7F; rx_p31<=31'h7FFFFFFF; end
-      else if (rx_locked) begin rx_p7<=rx_p7_n; rx_p31<=rx_p31_n; if (tx_10b[8:1]==exp_b) rx_ok_cnt<=rx_ok_cnt+1; else rx_err_cnt<=rx_err_cnt+1; end
+      else if (rx_locked) begin rx_p7<=mode_prbs31?rx_p7:rx_p7_n; rx_p31<=mode_prbs31?rx_p31_n:rx_p31; if (tx_10b[8:1]==exp_b) rx_ok_cnt<=rx_ok_cnt+1; else rx_err_cnt<=rx_err_cnt+1; end
     end
   end
 endmodule
