@@ -1,0 +1,5 @@
+tb/sim_build/
+tb/results.xml
+__pycache__/
+*.fst
+*.vcd
