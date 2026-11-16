@@ -6,39 +6,32 @@ module serdes_pcs_vip (
   output reg [31:0] rx_ok_cnt, output reg [31:0] rx_err_cnt
 );
   localparam [9:0] K28_5 = 10'b0011111010;
-  function [7:0] next_p7(input [6:0] s, output [6:0] ns);
-    integer i; reg [6:0] t;
-    begin t=s; for(i=0;i<8;i=i+1) begin next_p7[i]=t[6]; t={t[5:0],t[6]^t[5]}; end ns=t; end
+  function [14:0] step_p7(input [6:0] s);
+    integer i; reg [6:0] t; reg [7:0] b;
+    begin t=s; for(i=0;i<8;i=i+1) begin b[i]=t[6]; t={t[5:0],t[6]^t[5]}; end step_p7={t,b}; end
   endfunction
-  function [7:0] next_p31(input [30:0] s, output [30:0] ns);
-    integer i; reg [30:0] t;
-    begin t=s; for(i=0;i<8;i=i+1) begin next_p31[i]=t[30]; t={t[29:0],t[30]^t[27]}; end ns=t; end
+  function [38:0] step_p31(input [30:0] s);
+    integer i; reg [30:0] t; reg [7:0] b;
+    begin t=s; for(i=0;i<8;i=i+1) begin b[i]=t[30]; t={t[29:0],t[30]^t[27]}; end step_p31={t,b}; end
   endfunction
   reg [6:0] tx_p7, rx_p7, tx_p7_n, rx_p7_n; reg [30:0] tx_p31, rx_p31, tx_p31_n, rx_p31_n;
-  reg [7:0] tx_b, exp_b; reg tx_comma_d;
+  reg [7:0] tx_b, exp_b;
   always @(*) begin
-    tx_b = mode_prbs31 ? next_p31(tx_p31, tx_p31_n) : next_p7(tx_p7, tx_p7_n);
-    exp_b = mode_prbs31 ? next_p31(rx_p31, rx_p31_n) : next_p7(rx_p7, rx_p7_n);
+    {tx_p7_n, tx_b} = mode_prbs31 ? {tx_p7, 8'd0} : step_p7(tx_p7);
+    {tx_p31_n, exp_b} = mode_prbs31 ? step_p31(tx_p31) : {tx_p31, 8'd0};
+    if (mode_prbs31) tx_b = exp_b;
+    {rx_p7_n, exp_b} = mode_prbs31 ? {rx_p7, step_p31(rx_p31)[7:0]} : step_p7(rx_p7);
+    rx_p31_n = mode_prbs31 ? step_p31(rx_p31)[38:8] : rx_p31;
   end
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      tx_p7<=7'h7F; tx_p31<=31'h7FFFFFFF; tx_10b<=K28_5; tx_comma_d<=1;
+      tx_p7<=7'h7F; tx_p31<=31'h7FFFFFFF; tx_10b<=K28_5;
       rx_p7<=7'h7F; rx_p31<=31'h7FFFFFFF; rx_locked<=0; rx_ok_cnt<=0; rx_err_cnt<=0;
     end else begin
-      tx_comma_d <= send_comma;
-      if (send_comma) begin
-        tx_p7<=7'h7F; tx_p31<=31'h7FFFFFFF; tx_10b<=K28_5;
-      end else begin
-        tx_p7<=tx_p7_n; tx_p31<=tx_p31_n;
-        tx_10b <= {~tx_b[0], tx_b, tx_b[0]} ^ (err_inject ? 10'd2 : 10'd0);
-      end
-      if (tx_10b == K28_5) begin
-        rx_locked<=1; rx_p7<=7'h7F; rx_p31<=31'h7FFFFFFF;
-      end else if (rx_locked) begin
-        rx_p7<=rx_p7_n; rx_p31<=rx_p31_n;
-        if (tx_10b[8:1] == exp_b) rx_ok_cnt <= rx_ok_cnt + 1;
-        else rx_err_cnt <= rx_err_cnt + 1;
-      end
+      if (send_comma) begin tx_p7<=7'h7F; tx_p31<=31'h7FFFFFFF; tx_10b<=K28_5; end
+      else begin tx_p7<=tx_p7_n; tx_p31<=tx_p31_n; tx_10b<={~tx_b[0],tx_b,tx_b[0]}^(err_inject?10'd2:10'd0); end
+      if (tx_10b==K28_5) begin rx_locked<=1; rx_p7<=7'h7F; rx_p31<=31'h7FFFFFFF; end
+      else if (rx_locked) begin rx_p7<=rx_p7_n; rx_p31<=rx_p31_n; if (tx_10b[8:1]==exp_b) rx_ok_cnt<=rx_ok_cnt+1; else rx_err_cnt<=rx_err_cnt+1; end
     end
   end
 endmodule
